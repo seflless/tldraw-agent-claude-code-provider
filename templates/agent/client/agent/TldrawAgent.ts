@@ -683,12 +683,18 @@ export class TldrawAgent {
 		prompt: BaseAgentPrompt
 		signal: AbortSignal
 	}): AsyncGenerator<Streaming<AgentAction>> {
+		const headers: Record<string, string> = {
+			'Content-Type': 'application/json',
+		}
+		const currentModel = this.modelName.getModelName()
+		if (currentModel.startsWith('claude-code')) {
+			headers['X-Provider'] = 'claude-code'
+		}
+
 		const res = await fetch('/stream', {
 			method: 'POST',
 			body: JSON.stringify(prompt),
-			headers: {
-				'Content-Type': 'application/json',
-			},
+			headers,
 			signal,
 		})
 

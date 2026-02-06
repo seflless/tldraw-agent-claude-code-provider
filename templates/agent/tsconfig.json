@@ -30,7 +30,7 @@
 		"noImplicitOverride": true
 	},
 	"exclude": ["node_modules"],
-	"include": ["client", "shared", "worker"],
+	"include": ["client", "shared", "worker", "scripts"],
 	"files": ["./vite.config.ts"],
 	"references": [{ "path": "../../packages/tldraw" }, { "path": "../../packages/tlschema" }]
 }

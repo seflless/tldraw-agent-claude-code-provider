@@ -27,7 +27,12 @@ export class AgentService {
 	getModel(modelName: AgentModelName): LanguageModel {
 		const modelDefinition = getAgentModelDefinition(modelName)
 		const provider = modelDefinition.provider
-		return this[provider](modelDefinition.id)
+		if (provider === 'claude-code') {
+			throw new Error(
+				'claude-code provider is handled by the Vite middleware, not the Cloudflare worker'
+			)
+		}
+		return this[provider as 'openai' | 'anthropic' | 'google'](modelDefinition.id)
 	}
 
 	async *stream(prompt: AgentPrompt): AsyncGenerator<Streaming<AgentAction>> {
@@ -95,10 +100,13 @@ export class AgentService {
 		}
 
 		// Add the assistant message to indicate the start of the actions
-		messages.push({
-			role: 'assistant',
-			content: '{"actions": [{"_type":',
-		})
+		// (skip for claude-code since it may not support pre-filled assistant messages)
+		if (modelDefinition.provider !== 'claude-code') {
+			messages.push({
+				role: 'assistant',
+				content: '{"actions": [{"_type":',
+			})
+		}
 
 		// Configure thinking budgets based on model. We let models think using the think action, so we keep this as low as possible to minimize time to first token
 		// Gemini: 256 for thinking models, 0 otherwise

@@ -1,5 +1,5 @@
 export type AgentModelName = keyof typeof AGENT_MODEL_DEFINITIONS
-export type AgentModelProvider = 'openai' | 'anthropic' | 'google'
+export type AgentModelProvider = 'openai' | 'anthropic' | 'google' | 'claude-code'
 
 export interface AgentModelDefinition {
 	name: AgentModelName
@@ -38,6 +38,13 @@ export const AGENT_MODEL_DEFINITIONS = {
 		name: 'gemini-3-flash-preview',
 		id: 'gemini-3-flash-preview',
 		provider: 'google',
+	},
+
+	// Claude Code models (uses local Claude Code CLI)
+	'claude-code-sonnet': {
+		name: 'claude-code-sonnet',
+		id: 'sonnet',
+		provider: 'claude-code',
 	},
 
 	// OpenAI models
