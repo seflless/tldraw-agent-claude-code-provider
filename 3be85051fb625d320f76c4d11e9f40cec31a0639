@@ -1,0 +1,33 @@
+templates/agent/shared/models.ts
+  df0bdcae1a1582a5 2,43-49
+templates/agent/client/agent/TldrawAgent.ts
+  df0bdcae1a1582a5 686-693,697
+templates/agent/tsconfig.json
+  df0bdcae1a1582a5 33
+templates/agent/worker/do/AgentService.ts
+  df0bdcae1a1582a5 30-35,103-104,109
+templates/agent/scripts/vite-claude-code-plugin.ts
+  df0bdcae1a1582a5 1-190
+templates/agent/vite.config.ts
+  df0bdcae1a1582a5 5,13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "3be85051fb625d320f76c4d11e9f40cec31a0639",
+  "prompts": {
+    "df0bdcae1a1582a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "246175a3-75e7-4697-959a-55e765ce3052",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Francois Laberge <francoislaberge@gmail.com>",
+      "messages": [],
+      "total_additions": 278,
+      "total_deletions": 66,
+      "accepted_lines": 219,
+      "overriden_lines": 0
+    }
+  }
+}
