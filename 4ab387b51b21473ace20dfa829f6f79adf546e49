@@ -1,0 +1,23 @@
+templates/agent/scripts/vite-claude-code-plugin.ts
+  a57c1253746dc76a 68-71,87-90,94-119,121-122,125-131,133-135,139-144,155,179-180,183-184,187-217,222-224,239,242,244,246-247,249-262,265-278,280-285,287-299,305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "4ab387b51b21473ace20dfa829f6f79adf546e49",
+  "prompts": {
+    "a57c1253746dc76a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "032d72ba-a40e-419a-8778-c653dba889bd",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Francois Laberge <francoislaberge@gmail.com>",
+      "messages": [],
+      "total_additions": 298,
+      "total_deletions": 109,
+      "accepted_lines": 148,
+      "overriden_lines": 2
+    }
+  }
+}
