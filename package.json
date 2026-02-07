@@ -45,6 +45,7 @@
 		"dev-docs": "LAZYREPO_PRETTY_OUTPUT=0 lazy run dev --filter='apps/docs'",
 		"dev-huppy": "LAZYREPO_PRETTY_OUTPUT=0 lazy run dev --filter 'internal/huppy'",
 		"dev-template": "./internal/scripts/dev-template.sh",
+		"dev-agent": "cd templates/agent; yarn dev",
 		"build": "lazy build",
 		"build-app": "lazy run build --filter 'apps/dotcom/client'",
 		"build-docs": "lazy run build --filter 'apps/docs'",

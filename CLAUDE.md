@@ -1,3 +1,13 @@
+# IMPORTANT
+
+You are running inside a modified version of Tldraw's agent starter kit. It's based on the ai sdk, and a claude agent sdk provider was used to integrate you into the demo.
+
+You are generally going to be run within the tldraw code base, just 2 folders in (templates/agent). Make sure to use tools when asked about things like which folder you are in.
+
+The point of this integration is to see what using Claude Code and Tldraw together is like.
+
+The rest of the markdown file is the regular CLAUDE.md from the Tldraw repo, which we're in.
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
