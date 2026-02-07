@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
+import path from 'path'
 import type { Plugin, ViteDevServer } from 'vite'
 
 /**
@@ -50,6 +51,7 @@ export function claudeCodePlugin(): Plugin {
 						const model = claudeCode('sonnet', {
 							allowDangerouslySkipPermissions: true,
 							permissionMode: 'bypassPermissions',
+							cwd: path.resolve(process.cwd(), '../../'),
 						})
 
 						const messages: any[] = []
@@ -63,7 +65,10 @@ export function claudeCodePlugin(): Plugin {
 							systemPrompt.length
 						)
 
-						const { textStream } = streamText({
+						// Use fullStream instead of textStream to get tool activity events too.
+						// textStream only yields text deltas — during tool execution phases
+						// (which can be long), nothing comes through and the UI appears frozen.
+						const result = streamText({
 							model,
 							system: systemPrompt,
 							messages,
@@ -79,55 +84,80 @@ export function claudeCodePlugin(): Plugin {
 							'Access-Control-Allow-Origin': '*',
 						})
 
-						// Claude Code responses mix plain text with JSON blocks.
-						// We need to extract JSON `{"actions": [...]}` blocks from the stream
-						// and parse actions from them, ignoring surrounding prose.
-						let buffer = ''
-						let startTime = Date.now()
-						let chunkCount = 0
-						let actionsSent = 0
-
-						for await (const text of textStream) {
-							chunkCount++
-							buffer += text
-							if (chunkCount <= 3) {
-								console.log(`[claude-code] Chunk ${chunkCount}: ${text.slice(0, 200)}`)
-							}
-
-							// Try to find and parse complete JSON blocks from the buffer
-							const extracted = extractJsonActions(buffer)
-							for (const action of extracted.actions) {
-								actionsSent++
-								const event = { ...action, complete: true, time: Date.now() - startTime }
-								res.write(`data: ${JSON.stringify(event)}\n\n`)
-							}
-							// Keep only the unparsed remainder
-							buffer = extracted.remainder
+						const send = (data: any) => {
+							res.write(`data: ${JSON.stringify(data)}\n\n`)
 						}
 
-						console.log(
-							`[claude-code] Stream ended. Total chunks: ${chunkCount}, actions sent: ${actionsSent}`
-						)
-						if (buffer.length > 0) {
-							console.log('[claude-code] Remaining buffer (first 500 chars):', buffer.slice(0, 500))
+						let buffer = ''
+						let startTime = Date.now()
+						let actionsSent = 0
+						let lastPartialAction: any = null
+
+						for await (const event of result.fullStream) {
+							// --- Text deltas: accumulate and extract actions ---
+							if (event.type === 'text-delta') {
+								buffer += event.text
+
+								// Extract any complete individual actions from the buffer
+								const extracted = extractJsonActions(buffer)
+								for (const action of extracted.completeActions) {
+									console.log('[claude-code] Action:', action._type)
+									actionsSent++
+									lastPartialAction = null
+									startTime = Date.now()
+									send({ ...action, complete: true, time: Date.now() - startTime })
+								}
+
+								// Preview the in-progress action (incomplete JSON closed heuristically)
+								if (extracted.partialAction) {
+									lastPartialAction = extracted.partialAction
+									send({
+										...extracted.partialAction,
+										complete: false,
+										time: Date.now() - startTime,
+									})
+								}
+
+								buffer = extracted.remainder
+								continue
+							}
+
+							// --- Tool activity: show what Claude Code is doing ---
+							if (event.type === 'tool-call') {
+								const toolName = event.toolName ?? 'unknown'
+								console.log(`[claude-code] Tool call: ${toolName}`)
+								send({
+									_type: 'message',
+									text: `🔧 ${toolName}`,
+									complete: true,
+									time: Date.now() - startTime,
+								})
+								continue
+							}
+						}
+
+						console.log(`[claude-code] Stream ended. Actions sent: ${actionsSent}`)
+
+						// Finalize the last partial action if the stream ended mid-action
+						if (lastPartialAction) {
+							send({ ...lastPartialAction, complete: true, time: Date.now() - startTime })
+							actionsSent++
 						}
 
 						// Fallback: if no actions were extracted, wrap the full text as a message
 						if (actionsSent === 0 && buffer.trim().length > 0) {
-							// Strip any JSON artifacts from the text for clean display
 							const cleanText = buffer
 								.replace(/```json\s*/g, '')
 								.replace(/```\s*/g, '')
 								.trim()
 							if (cleanText.length > 0) {
 								console.log('[claude-code] No actions parsed, sending as message')
-								const messageAction = {
+								send({
 									_type: 'message',
 									text: cleanText,
 									complete: true,
 									time: Date.now() - startTime,
-								}
-								res.write(`data: ${JSON.stringify(messageAction)}\n\n`)
+								})
 							}
 						}
 
@@ -146,35 +176,56 @@ export function claudeCodePlugin(): Plugin {
 }
 
 /**
- * Extract complete JSON `{"actions": [...]}` blocks from a text buffer
- * that may contain a mix of prose and JSON.
- * Returns the parsed actions and the remaining unparsed text.
+ * Extract individual complete action objects from an `{"actions": [...]}` block
+ * incrementally, plus a partial preview of the in-progress action.
  */
-function extractJsonActions(buffer: string): { actions: any[]; remainder: string } {
-	const actions: any[] = []
-	let remainder = buffer
+function extractJsonActions(buffer: string): {
+	completeActions: any[]
+	partialAction: any | null
+	remainder: string
+} {
+	const completeActions: any[] = []
 
-	// Look for JSON objects that start with {"actions"
-	// They may appear after prose text, possibly inside ```json code blocks
-	const jsonPattern = /\{[\s\n]*"actions"\s*:\s*\[/g
-	let match
+	const arrayMatch = /\{[\s\n]*"actions"\s*:\s*\[/.exec(buffer)
+	if (!arrayMatch) {
+		return { completeActions, partialAction: null, remainder: buffer }
+	}
 
-	while ((match = jsonPattern.exec(remainder)) !== null) {
-		const startIdx = match.index
-		// Try to find the end of this JSON object by counting braces
+	let cursor = arrayMatch.index + arrayMatch[0].length
+	let arrayEnded = false
+
+	while (cursor < buffer.length) {
+		// Skip whitespace and commas between array elements
+		while (cursor < buffer.length && /[\s,]/.test(buffer[cursor])) {
+			cursor++
+		}
+		if (cursor >= buffer.length) break
+
+		if (buffer[cursor] === ']') {
+			arrayEnded = true
+			cursor++
+			while (cursor < buffer.length && /\s/.test(buffer[cursor])) cursor++
+			if (cursor < buffer.length && buffer[cursor] === '}') cursor++
+			break
+		}
+
+		if (buffer[cursor] !== '{') {
+			cursor++
+			continue
+		}
+
+		// Count braces to find the end of this action object
 		let depth = 0
 		let inString = false
 		let endIdx = -1
 
-		for (let i = startIdx; i < remainder.length; i++) {
-			const char = remainder[i]
-
-			if (char === '"' && (i === 0 || remainder[i - 1] !== '\\')) {
+		for (let i = cursor; i < buffer.length; i++) {
+			const char = buffer[i]
+			if (char === '"' && (i === 0 || buffer[i - 1] !== '\\')) {
 				inString = !inString
 				continue
 			}
 			if (inString) continue
-
 			if (char === '{') depth++
 			else if (char === '}') {
 				depth--
@@ -185,26 +236,71 @@ function extractJsonActions(buffer: string): { actions: any[]; remainder: string
 			}
 		}
 
-		if (endIdx === -1) {
-			// Incomplete JSON block - stop here, keep remainder for next iteration
-			break
-		}
+		if (endIdx === -1) break // incomplete object
 
-		const jsonStr = remainder.slice(startIdx, endIdx)
 		try {
-			const parsed = JSON.parse(jsonStr)
-			if (parsed.actions && Array.isArray(parsed.actions)) {
-				actions.push(...parsed.actions)
-			}
+			completeActions.push(JSON.parse(buffer.slice(cursor, endIdx)))
 		} catch {
-			// Malformed JSON, skip it
-			console.log('[claude-code] Failed to parse JSON block:', jsonStr.slice(0, 100))
+			// skip malformed
 		}
-
-		// Remove everything up to and including this JSON block
-		remainder = remainder.slice(endIdx)
-		jsonPattern.lastIndex = 0 // Reset regex since we modified the string
+		cursor = endIdx
 	}
 
-	return { actions, remainder }
+	// Try to parse the in-progress (incomplete) action via heuristic closing
+	let partialAction: any | null = null
+	if (!arrayEnded && cursor < buffer.length && buffer[cursor] === '{') {
+		partialAction = closeAndParseJson(buffer.slice(cursor))
+	}
+
+	if (arrayEnded) {
+		const afterBlock = buffer.slice(cursor)
+		if (afterBlock.includes('"actions"')) {
+			const more = extractJsonActions(afterBlock)
+			completeActions.push(...more.completeActions)
+			return { completeActions, partialAction: more.partialAction, remainder: more.remainder }
+		}
+		return { completeActions, partialAction: null, remainder: afterBlock }
+	}
+
+	return { completeActions, partialAction, remainder: '{"actions": [' + buffer.slice(cursor) }
+}
+
+/**
+ * Parse potentially incomplete JSON by closing all unclosed brackets/braces/strings.
+ */
+function closeAndParseJson(str: string): any | null {
+	const stack: string[] = []
+	let i = 0
+	while (i < str.length) {
+		const char = str[i]
+		const last = stack.at(-1)
+		if (char === '"') {
+			if (i > 0 && str[i - 1] === '\\') {
+				i++
+				continue
+			}
+			if (last === '"') stack.pop()
+			else stack.push('"')
+		}
+		if (last === '"') {
+			i++
+			continue
+		}
+		if (char === '{' || char === '[') stack.push(char)
+		if (char === '}' && last === '{') stack.pop()
+		if (char === ']' && last === '[') stack.pop()
+		i++
+	}
+	let closed = str
+	for (let j = stack.length - 1; j >= 0; j--) {
+		const o = stack[j]
+		if (o === '{') closed += '}'
+		else if (o === '[') closed += ']'
+		else if (o === '"') closed += '"'
+	}
+	try {
+		return JSON.parse(closed)
+	} catch {
+		return null
+	}
 }
